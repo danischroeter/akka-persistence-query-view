@@ -33,7 +33,7 @@ trait LevelDbQuerySupport extends QuerySupport {
   this: QueryView =>
 
   override type Queries = LeveldbReadJournal
-  override def firstOffset: OT = Sequence(1L)
+  override def firstOffset: OT = Sequence(0L)
   override val queries: LeveldbReadJournal =
     PersistenceQuery(context.system).readJournalFor[LeveldbReadJournal](LeveldbReadJournal.Identifier)
 }

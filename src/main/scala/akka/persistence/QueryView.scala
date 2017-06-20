@@ -98,8 +98,10 @@ abstract class QueryView
 
   private[this] var _lastOffset: OT = firstOffset
   private[this] var _sequenceNrByPersistenceId: Map[String, Long] = Map.empty
+  private[this] var _futureEventsByPersistenceId: Map[String, List[EventEnvelope2]] = Map.empty
   private[this] var lastSnapshotSequenceNr: Long = 0L
   private[this] var _noOfEventsSinceLastSnapshot: Long = 0L
+  private[this] var _currentEvent: Option[(String,Long)] = None
   private[this] var currentState: State = State.WaitingForSnapshot
   private[this] var loadSnapshotTimer: Option[Cancellable] = None
   private[this] var savingSnapshot: Boolean = false
@@ -118,6 +120,12 @@ abstract class QueryView
     * It is the persistenceId linked to this view. It should be unique.
     */
   override def snapshotterId: String
+
+  /**
+    * Can be accessed while processing an event (in #receive) to get its persistenceId/sequenceNr otherwise fails with java.util.NoSuchElementException
+    * @return
+    */
+  def currentEvent: (String,Long) = _currentEvent.get
 
   /**
     * Configuration id of the snapshot plugin servicing this persistent actor or view.
@@ -275,27 +283,27 @@ abstract class QueryView
       case StartLive =>
         sender() ! EventReplayed
 
-      case EventEnvelope2(offset: OT, persistenceId, sequenceNr, event) =>
-        processEvent(behaviour, offset, persistenceId, sequenceNr, event)
+      case e: EventEnvelope2 ⇒
+        processEvent(behaviour, e)
         sender() ! EventReplayed
 
-      case EventEnvelope(offset, persistenceId, sequenceNr, event) =>
-        processEvent(behaviour, Sequence(offset), persistenceId, sequenceNr, event)
+      case EventEnvelope(offset, persistenceId, sequenceNr, event) ⇒
+        processEvent(behaviour, EventEnvelope2(Sequence(offset),persistenceId,sequenceNr,event))
         sender() ! EventReplayed
 
-      case LiveStreamFailed(ex) =>
+      case LiveStreamFailed(ex) ⇒
         log.error(ex, s"Live stream failed, it is a fatal error")
         // We have to crash the actor
         throw ex
 
-      case ForceUpdate =>
+      case ForceUpdate ⇒
         startForceUpdate()
 
-      case StartForceUpdate =>
+      case StartForceUpdate ⇒
         log.debug("update stream started")
         sender() ! EventReplayed
 
-      case ForceUpdateCompleted =>
+      case ForceUpdateCompleted ⇒
         forcedUpdateInProgress = false
         onForceUpdateCompleted()
 
@@ -312,7 +320,6 @@ abstract class QueryView
         super.aroundReceive(behaviour, msg)
 
       case _ ⇒
-        _noOfEventsSinceLastSnapshot = _noOfEventsSinceLastSnapshot + 1
         super.aroundReceive(behaviour, msg)
     }
 
@@ -321,12 +328,12 @@ abstract class QueryView
       case StartRecovery =>
         sender() ! EventReplayed
 
-      case EventEnvelope(offset, persistenceId, sequenceNr, event) ⇒
-        processEvent(behaviour, Sequence(offset), persistenceId, sequenceNr, event)
+      case e: EventEnvelope2 ⇒
+        processEvent(behaviour, e)
         sender() ! EventReplayed
 
-      case EventEnvelope2(offset: OT, persistenceId, sequenceNr, event) ⇒
-        processEvent(behaviour, offset, persistenceId, sequenceNr, event)
+      case EventEnvelope(offset, persistenceId, sequenceNr, event) ⇒
+        processEvent(behaviour, EventEnvelope2(Sequence(offset),persistenceId,sequenceNr,event))
         sender() ! EventReplayed
 
       case QueryView.RecoveryCompleted ⇒
@@ -360,15 +367,29 @@ abstract class QueryView
         recoveringStash.stash()
     }
 
-  private def processEvent(behaviour: Receive, offset: OT, persistenceId: String, sequenceNr: Long, event: Any) = {
-    val expectedNextSeqForPersistenceId = _sequenceNrByPersistenceId.getOrElse(persistenceId, 0L) + 1
-    if (sequenceNr >= expectedNextSeqForPersistenceId) {
-      _lastOffset = offset
-      _sequenceNrByPersistenceId = _sequenceNrByPersistenceId + (persistenceId -> sequenceNr)
+  private def processEvent(behaviour: Receive, ee: EventEnvelope2): Unit = {
+    val expectedNextSeqForPersistenceId = _sequenceNrByPersistenceId.getOrElse(ee.persistenceId, 0L) + 1
+    if (ee.sequenceNr > expectedNextSeqForPersistenceId) {
+      log.debug("postpone processing of future event with seq {} for persistenceId {} with expectedSeq {}", ee.sequenceNr, ee.persistenceId, expectedNextSeqForPersistenceId)
+      val newFutureEventsForPid = ee :: _futureEventsByPersistenceId.getOrElse(ee.persistenceId, List.empty)
+      _futureEventsByPersistenceId = _futureEventsByPersistenceId + (ee.persistenceId -> newFutureEventsForPid)
+    }
+    else if (ee.sequenceNr == expectedNextSeqForPersistenceId) {
+      _lastOffset = ee.offset.asInstanceOf[OT]
+      _sequenceNrByPersistenceId = _sequenceNrByPersistenceId + (ee.persistenceId -> ee.sequenceNr)
       _noOfEventsSinceLastSnapshot = _noOfEventsSinceLastSnapshot + 1
-      super.aroundReceive(behaviour, event)
-    } else {
-      log.debug(s"filter already processed event for sequenceNr=$sequenceNr event=$event")
+
+      _currentEvent = Some((ee.persistenceId,ee.sequenceNr))
+      super.aroundReceive(behaviour, ee.event)
+      _currentEvent = None
+
+      _futureEventsByPersistenceId.get(ee.persistenceId).map(fes => fes.sortBy(_.sequenceNr)).foreach(fes => {
+        _futureEventsByPersistenceId = _futureEventsByPersistenceId + (ee.persistenceId -> fes.tail)
+        fes.headOption.foreach(fe => processEvent(behaviour, fe))
+      })
+    }
+    else {
+      log.debug("filter already processed event for sequenceNr {} event {}", ee.sequenceNr, ee.event)
     }
   }
 
@@ -378,7 +399,7 @@ abstract class QueryView
         val offer = SnapshotOffer(metadata, status.data)
         if (behaviour.isDefinedAt(offer)) {
           super.aroundReceive(behaviour, offer)
-          _lastOffset = status.maxOffset
+          _lastOffset = status.maxOffset.asInstanceOf[OT]
           _sequenceNrByPersistenceId = status.sequenceNrs
           lastSnapshotSequenceNr = metadata.sequenceNr
         }

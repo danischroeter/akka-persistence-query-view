@@ -119,8 +119,7 @@ class PersonsQueryView extends QueryView with LevelDbQuerySupport {
 
 Under the hood it will store also the last consumed offset and the last sequence number for each persistence id already consumed.
 
-The QueryView checks that all received events follow a strict sequence per persistentId. Be aware that most journal plugins do not guarantee the correct order for `eventsByTag` (see journal documentation). 
-If that is ok one can overwrite `override def allowOutOfOrderEvents = true` to omit the checking. (In the future we might implement some deferred processing of out of order received events)
+The QueryView checks that all received events follow a strict sequence per persistentId. Events read out of order are held in memory and only applied once all previous events have been received.
 
 ### Forced Update
 Most journals use some sort of polling under the hood to support a live stream for `eventsByTag/eventsByPersistentId` PersistentQueries. (The default cassandra journal uses 3 seconds)
