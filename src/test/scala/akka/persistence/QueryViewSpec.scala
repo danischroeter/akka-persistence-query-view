@@ -123,6 +123,7 @@ class QueryViewSpec extends UnitSpec with ConfigFixture with AkkaFixture with Ak
           assertGetMessages(Seq("test-1-1", "test-3-1", "test-1-2"))
         }
       }
+
       "is restarted" should {
         "receive journal events with the given tag" in new TagQueryViewContext("one") {
 
@@ -141,7 +142,7 @@ class QueryViewSpec extends UnitSpec with ConfigFixture with AkkaFixture with Ak
         "continue receiving live events with the given tag" in new TagQueryViewContext("one") {
 
           writeToJournal("test-1", Tagged("test-1-1", Set("one")))
-          writeToJournal("test-1", Tagged("test-1-2", Set("two")))
+          writeToJournal("test-1", Tagged("test-1-2", Set("one")))
           writeToJournal("test-2", Tagged("test-2-1", Set("one", "two")))
           writeToJournal("test-2", Tagged("test-2-2", Set("two")))
           writeToJournal("test-1", Tagged("test-1-3", Set("one")))
@@ -151,31 +152,34 @@ class QueryViewSpec extends UnitSpec with ConfigFixture with AkkaFixture with Ak
           writeToJournal("test-1", Tagged("test-1-4", Set("one")))
           writeToJournal("test-2", Tagged("test-2-3", Set("one", "two")))
 
-          assertGetMessages(Seq("test-1-1", "test-2-1", "test-1-3", "test-1-4", "test-2-3"))
+          //hmm order of test-1-2 and test-2-1 is theoretically random
+          //not receive test-2-3 since not receive test-2-2 ever
+          assertGetMessages(Seq("test-1-1", "test-1-2", "test-2-1", "test-1-3", "test-1-4"))
         }
 
         "receives events from new recoverystream on force update" in new TagQueryViewContextOnlyRecoveryStream("one") {
 
           writeToJournal("test-1", Tagged("test-1-1", Set("one")))
-          writeToJournal("test-1", Tagged("test-1-2", Set("two")))
+          writeToJournal("test-1", Tagged("test-1-2", Set("one")))
           writeToJournal("test-2", Tagged("test-2-1", Set("one")))
           writeToJournal("test-2", Tagged("test-2-2", Set("two")))
           writeToJournal("test-1", Tagged("test-1-3", Set("one")))
 
           restartUnderTest()
 
-          assertGetMessages(Seq("test-1-1", "test-2-1", "test-1-3"))
+          //hmm order of test-1-2 and test-2-1 is theoretically random
+          assertGetMessages(Seq("test-1-1", "test-1-2", "test-2-1", "test-1-3"))
 
           writeToJournal("test-1", Tagged("test-1-4", Set("one")))
           writeToJournal("test-2", Tagged("test-2-3", Set("one")))
 
-          assertGetMessages(Seq("test-1-1", "test-2-1", "test-1-3", "test-1-4", "test-2-3"), update = true)
+          assertGetMessages(Seq("test-1-1", "test-1-2", "test-2-1", "test-1-3", "test-1-4"), update = true)
         }
 
         "load status from snapshot and receive journal events" in new TagQueryViewContext("one") {
 
           writeToJournal("test-1", Tagged("test-1-1", Set("one")))
-          writeToJournal("test-1", Tagged("test-1-2", Set("two")))
+          writeToJournal("test-1", Tagged("test-1-2", Set("one")))
           writeToJournal("test-2", Tagged("test-2-1", Set("one")))
           writeToJournal("test-2", Tagged("test-2-2", Set("two")))
           writeToJournal("test-1", Tagged("test-1-3", Set("one")))
@@ -188,31 +192,33 @@ class QueryViewSpec extends UnitSpec with ConfigFixture with AkkaFixture with Ak
 
           restartUnderTest()
 
-          assertGetMessages(Seq("test-1-1", "test-2-1", "test-1-3", "test-1-4", "test-2-3"))
-
+          //hmm order of test-1-2 and test-2-1 is theoretically random
+          assertGetMessages(Seq("test-1-1", "test-1-2", "test-2-1", "test-1-3", "test-1-4"))
         }
+      }
 
-        "recover from failure in live stream" in new FailingLiveQueryViewContext("one") {
-          writeToJournal("test-1", Tagged("test-1-1", Set("one")))
-          writeToJournal("test-1", Tagged("test-1-2", Set("one")))
+      "recover from failure in live stream" in new FailingLiveQueryViewContext("one") {
 
-          assertGetMessages(Seq("test-1-1", "test-1-2"))
+        writeToJournal("test-1", Tagged("test-1-1", Set("one")))
+        writeToJournal("test-1", Tagged("test-1-2", Set("one")))
 
-          writeToJournal("test-1", Tagged("test-1-3", Set("one")))
+        assertGetMessages(Seq("test-1-1", "test-1-2"))
 
-          assertGetMessages(Seq("test-1-1", "test-1-2", "test-1-3"))
-        }
+        writeToJournal("test-1", Tagged("test-1-3", Set("one")))
 
-        "recover from child exception" in new TagQueryViewContext("one") {
-          writeToJournal("test-1", Tagged("test-1-1", Set("one")))
-          writeToJournal("test-1", Tagged("test-1-2", Set("one")))
+        assertGetMessages(Seq("test-1-1", "test-1-2", "test-1-3"))
+      }
 
-          assertGetMessages(Seq("test-1-1", "test-1-2"))
+      "recover from child exception" in new TagQueryViewContext("one") {
 
-          throwException()
+        writeToJournal("test-1", Tagged("test-1-1", Set("one")))
+        writeToJournal("test-1", Tagged("test-1-2", Set("one")))
 
-          assertGetMessages(Seq("test-1-1", "test-1-2"))
-        }
+        assertGetMessages(Seq("test-1-1", "test-1-2"))
+
+        throwException()
+
+        assertGetMessages(Seq("test-1-1", "test-1-2"))
       }
     }
   }
