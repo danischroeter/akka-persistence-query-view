@@ -23,7 +23,6 @@ import akka.persistence.query.{EventEnvelope, EventEnvelope2, Sequence}
 import akka.stream.ActorMaterializer
 import akka.stream.scaladsl._
 
-import scala.concurrent.TimeoutException
 import scala.concurrent.duration._
 
 object QueryView {
@@ -83,11 +82,11 @@ trait EventStreamOffsetTyped {
 
 abstract class QueryView
     extends Actor
-    with Snapshotter
-    with EventStreamOffsetTyped
-    with Stash
-    with StashFactory
-    with ActorLogging {
+        with Snapshotter
+        with EventStreamOffsetTyped
+        with Stash
+        with StashFactory
+        with ActorLogging {
 
   import QueryView._
   import context._
@@ -267,7 +266,7 @@ abstract class QueryView
   }
 
   override protected[akka] def aroundReceive(behaviour: Receive, msg: Any): Unit = {
-    log.debug(s"Query view in state [$currentState] received message: [$msg]")
+    log.debug("Query view in state [{}] received message: [{}]", currentState, msg)
     if (isWaitingForSnapshot) {
       waitingForSnapshot(behaviour, msg)
     } else if (isRecovering) {
@@ -291,8 +290,8 @@ abstract class QueryView
         processEvent(behaviour, EventEnvelope2(Sequence(offset),persistenceId,sequenceNr,event))
         sender() ! EventReplayed
 
-      case LiveStreamFailed(ex) ⇒
-        log.error(ex, s"Live stream failed, it is a fatal error")
+      case LiveStreamFailed(ex) =>
+        log.error(ex, "Live stream failed, it is a fatal error")
         // We have to crash the actor
         throw ex
 
@@ -311,11 +310,11 @@ abstract class QueryView
         log.error(f, "forceupdate failed")
         forcedUpdateInProgress = false
 
-      case msg @ SaveSnapshotSuccess(metadata) ⇒
+      case msg@SaveSnapshotSuccess(metadata) ⇒
         snapshotSaved(metadata)
         super.aroundReceive(behaviour, msg)
 
-      case msg @ SaveSnapshotFailure(metadata, error) ⇒
+      case msg@SaveSnapshotFailure(metadata, error) ⇒
         snapshotSavingFailed(metadata, error)
         super.aroundReceive(behaviour, msg)
 
@@ -345,16 +344,16 @@ abstract class QueryView
         log.error(ex, "Error recovering")
         throw ex
 
-      case msg @ SaveSnapshotSuccess(metadata) ⇒
+      case msg@SaveSnapshotSuccess(metadata) ⇒
         snapshotSaved(metadata)
         super.aroundReceive(behaviour, msg)
 
-      case msg @ SaveSnapshotFailure(metadata, error) ⇒
+      case msg@SaveSnapshotFailure(metadata, error) ⇒
         snapshotSavingFailed(metadata, error)
         super.aroundReceive(behaviour, msg)
 
       case LiveStreamFailed(ex) =>
-        log.error(ex, s"Live stream failed while recovering, ignoring...")
+        log.error(ex, "Live stream failed while recovering, ignoring...")
 
       case LoadSnapshotTimeout =>
         log.error("Unexpected load snapshot timeout while recovering.")
@@ -363,7 +362,7 @@ abstract class QueryView
         log.error(ex, "Unexpected snapshot failed error while recovering.")
 
       case other =>
-        log.debug(s"Stashing while recovering: [$other]")
+        log.debug("Stashing while recovering: [{}]", other)
         recoveringStash.stash()
     }
 
@@ -410,7 +409,7 @@ abstract class QueryView
 
       case LoadSnapshotTimeout =>
         // It is recoverable so we don't need to crash the actor
-        log.error(s"Timeout loading the snapshot after [$loadSnapshotTimeout]")
+        log.error("Timeout loading the snapshot after [{}]", loadSnapshotTimeout)
         startRecovery()
 
       case LoadSnapshotFailed(ex) =>
@@ -418,10 +417,10 @@ abstract class QueryView
         startRecovery()
 
       case LiveStreamFailed(ex) =>
-        log.error(ex, s"Live stream failed while waiting for snapshot, ignoring...")
+        log.error(ex, "Live stream failed while waiting for snapshot, ignoring...")
 
       case other =>
-        log.debug(s"Stashing while waiting for snapshot: [$other]")
+        log.debug("Stashing while waiting for snapshot: [{}]", other)
         recoveringStash.stash()
     }
 
@@ -480,14 +479,12 @@ abstract class QueryView
     savingSnapshot = false
     lastSnapshotSequenceNr = metadata.sequenceNr
     _noOfEventsSinceLastSnapshot = 0L
-    log.debug(
-      s"Snapshot saved successfully snapshotterId=$snapshotterId lastSnapshotSequenceNr=$lastSnapshotSequenceNr"
-    )
+    log.debug(s"Snapshot saved successfully snapshotterId={} lastSnapshotSequenceNr={}", snapshotterId, lastSnapshotSequenceNr)
 
   }
 
   private def snapshotSavingFailed(metadata: SnapshotMetadata, error: Throwable): Unit = {
     savingSnapshot = false
-    log.error(error, s"Error saving snapshot snapshotterId=$snapshotterId")
+    log.error(error, "Error saving snapshot snapshotterId={}", snapshotterId)
   }
 }
