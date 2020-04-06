@@ -1,4 +1,5 @@
 val homepageUrl = url("https://github.com/firstbirdtech/akka-persistence-query-view")
+val scmUrl ="https://github.com/firstbirdtech/akka-persistence-query-view.git"
 
 lazy val root = project
   .in(file("."))
@@ -9,6 +10,9 @@ lazy val root = project
     name := "akka-persistence-query-view",
     description := "An Akka PersistentView replacement",
     homepage := Some(homepageUrl),
+    scmInfo := Some(
+      ScmInfo(homepageUrl, scmUrl)
+    ),
     startYear := Some(2016),
     licenses := Seq(("Apache-2.0", url("http://www.apache.org/licenses/LICENSE-2.0"))),
     developers += Developer(
