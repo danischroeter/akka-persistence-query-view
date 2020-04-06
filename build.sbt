@@ -1,5 +1,5 @@
 val homepageUrl = url("https://github.com/firstbirdtech/akka-persistence-query-view")
-val scmUrl ="https://github.com/firstbirdtech/akka-persistence-query-view.git"
+val scmUrl      = "https://github.com/firstbirdtech/akka-persistence-query-view.git"
 
 lazy val root = project
   .in(file("."))
